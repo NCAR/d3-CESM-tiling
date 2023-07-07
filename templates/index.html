@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en-US">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leaflet Grid</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+
+     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/site.css')}}">
+     <script src="https://d3js.org/d3.v7.min.js"></script>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="sidebar">
+        <p>
+            Coordinates: (<span id="lat-update">N/A</span>, <span id="lon-update">N/A</span>)
+        </p>
+        <p>
+            CESM2 Predicted 2023 Mean Surface Temperature: <span id="temp-update">N/A</span>
+        </p>
+        <svg id="time-series-chart" height="350" width="350"></svg>
+    </div>
+
+    <script>
+        // pass overall dataset min and max to set global constant colorbar
+        let globalColorMin = Number("{{ colormin }}")
+        let globalColorMax = Number("{{ colormax }}")
+
+        // create Leaflet map object
+        var map = new L.map('map', {
+            center: [30,0], 
+            minZoom: 1,
+            zoom: 2,
+            zoomSnap: 1,
+            maxBounds: [[-84, -Infinity],[84, Infinity]],
+            maxBoundsViscosity: 1.0
+        })
+    
+        // basemap
+        var CartoDB_DarkMatterNoLabels = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            maxZoom: 6
+        }).addTo(map);
+
+        // function for calculating grid widths of each datapoint
+        function calculateWidths(arr) {
+            // console.log(arr)
+            let differences = [];
+            for (let i = 0; i < arr.length - 1; i++) {
+                let difference = Math.abs(arr[i + 1] - arr[i]);
+                differences.push(difference);
+            }
+            // console.log(differences)
+            return differences;
+        }
+
+        // extending a gridlayer to create a data-rendered overlay
+        L.GridLayer.Test = L.GridLayer.extend({
+            createTile: function (coords) {
+                var tile = L.DomUtil.create('div', 'leaflet-tile custom-tile');
+
+                // for debugging
+                // tile.innerHTML = [coords.x, coords.y, coords.z].join(', ');
+                // tile.style.outline = '1px dashed white';
+
+                // making request to backend for data for one tile
+                fetch('/tiles/' + coords.z.toString() + '/' + coords.x.toString() + '/' + coords.y.toString(), {
+                    method: 'GET',
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // handling received data
+                    let coordinatesArray = data.cornerpoints
+                    data = JSON.parse(data.data).data
+                    
+                    // creating a svg overlay to append to
+                    var svgTile = d3.select(tile)
+                            .append("svg")
+                            .attr("class", "custom-tile-svg")
+                            .attr("width", "100%")
+                            .attr("height", "100%");
+                
+                    let tileWidth = svgTile.attr("width")
+                    let tileHeight = svgTile.attr("height")
+
+                    let svgElement = svgTile.node();
+                    let elementWidth = svgElement.getBoundingClientRect().width;
+                    let elementHeight = svgElement.getBoundingClientRect().height;
+
+                    // creating d3 extents and scales to help in plotting grid
+                    
+                    // dealing with colors
+                    let colorScale = d3.scaleSequential().interpolator(d3.interpolateRdBu).domain([globalColorMax, globalColorMin]);
+
+                    // x values of the data
+                    let xTileScale = d3.scaleLinear().domain([coordinatesArray[0], coordinatesArray[2]]).range([0, elementWidth])
+                    let xValues = [...new Set(data.map(d => d.x))]
+
+                    let xTileMin = xTileScale(xValues.at(0))
+                    let xTileMax = xTileScale(xValues.at(-1))
+                    let xRange = xTileMax - xTileMin
+
+                    console.log("Range: " + xRange)
+
+                    let xDifferences = calculateWidths(xValues)
+
+                    console.log("xDifferences: " + xDifferences)
+
+                    let xDiffInitial = xTileScale(xDifferences.at(0))
+                    let xDiffFinal = xTileScale(xDifferences.at(-1))
+
+                    console.log(xRange + xDiffInitial + xDiffFinal)
+
+                    // y values of the data
+                    let yTileScale = d3.scaleLinear().domain([coordinatesArray[3], coordinatesArray[1]]).range([elementHeight, 0])
+                    let yValues = [...new Set(data.map(d => d.y))]
+
+                    let yDifferences = calculateWidths(yValues)
+
+                    // var overlayTile = d3.select(tile)
+                    //         .append("svg")
+                    //         .attr("class", "data-overlay-svg")
+                    //         .style("border", "dashed red 1px")
+
+                    // appending a rectangle for each data point
+                    data.forEach((point, index) => {
+                        console.log(xValues.indexOf(point.x))
+                        let pointWidth = xTileScale(xDifferences[xValues.indexOf(point.x)])
+                        let pointHeight = yTileScale(yDifferences[yValues.indexOf(point.y)])
+                        console.log(pointWidth)
+                        let xNumber = xValues.length
+                        let yNumber = yValues.length
+
+                        svgTile.append("rect")
+                               .attr("x", xTileScale(point.x))
+                               .attr("y", yTileScale(point.y))
+                               .attr("width", Math.abs(elementWidth/xNumber))
+                               .attr("height", Math.abs(elementHeight/yNumber))
+                               .style("fill", colorScale(point.TS))
+                               .style("opacity", 0.8)
+
+                        // svgTile.append("circle")
+                        //        .attr("cx", xTileScale(point.x))
+                        //        .attr("cy", yTileScale(point.y))
+                        //        .attr("r", 2)
+                        //        .style("fill", "green")
+                    })
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+
+                return tile;
+            }
+        });
+
+        L.gridLayer.test = function(opts) {
+            return new L.GridLayer.Test(opts);
+        };
+        L.gridLayer.test().addTo(map);
+    
+    </script>
+
+    <!-- adding landmass outlines -->
+    <script src="{{ url_for('static', filename='js/outlines.js')}}"></script>
+    <!-- <script src="{{ url_for('static', filename='js/reference.js')}}"></script> -->
+
+    <!-- d3.js code for time series on click -->
+    <script>
+        const svg = d3.select("svg#time-series-chart");
+        const width = svg.attr("width");
+        const height = svg.attr("height");
+        const margin = {top: 25, right: 15, bottom: 60, left: 70};
+        const chartWidth = width - margin.left - margin.right;
+        const chartHeight = height - margin.top - margin.bottom;
+
+        let currentYear = 2023;
+
+        let annotations = svg.append("g").attr("id","annotations"); 
+        let chartArea = svg.append("g").attr("id","points")
+                        .attr("transform",`translate(${margin.left},${margin.top})`);
+
+        map.on('click', function (e) {
+            annotations.selectAll("*").remove();
+            chartArea.selectAll("*").remove();
+            svg.selectAll(".label").remove();
+
+            let clickedCoords = e.latlng
+
+            let projectedCoords = L.CRS.EPSG3857.project(e.latlng)
+            let latitude = projectedCoords.y;
+            let longitude = projectedCoords.x;
+
+            // send coordinates to backend
+            fetch('/time-series', {
+                    method: 'POST',
+                    body: JSON.stringify({ latitude, longitude }),
+                    headers: {
+                    'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    
+                    // call a function to process the received dataframe with d3.js and plot it
+                    data = JSON.parse(data.data)
+
+                    console.log(data)
+                    plotData(data, clickedCoords);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+        });
+
+        function plotData(data, clickedCoords) {
+            // ensure data is of type Number
+            data.forEach( d => {
+                d['year'] = Number( d['year']);
+                d['TS'] = Number(d['TS']);
+            });
+
+            // construct scales for the x-axis and y-axis based on data range
+            const xDomain = d3.extent(data, d => d.year);
+            const yDomain = d3.extent(data, d => d.TS)
+            const timeScale = d3.scaleLinear().domain(xDomain).range([0, chartWidth]);
+            const dataScale = d3.scaleLinear().domain(yDomain).range([chartHeight, 0]);
+
+            // construct y-axis
+            let leftAxis = d3.axisLeft(dataScale)
+            let leftGridlines = d3.axisLeft(dataScale)
+                                  .tickSize(-chartWidth-10)
+                                  .tickFormat("");
+
+            annotations.append("g")
+                        .attr("class", "y axis")
+                        .attr("transform",`translate(${margin.left-10},${margin.top})`)
+                        .call(leftAxis);
+            annotations.append("g")
+                        .attr("class", "y gridlines")
+                        .attr("transform",`translate(${margin.left-10},${margin.top})`)
+                        .call(leftGridlines);
+
+            // construct x-axis
+            let bottomAxis = d3.axisBottom(timeScale).tickFormat(d3.format("d"))
+            let bottomGridlines = d3.axisBottom(timeScale)
+                                    .tickSize(-chartHeight-10)
+                                    .tickFormat("")
+            annotations.append("g")
+                        .attr("class", "x axis")
+                        .attr("transform",`translate(${margin.left},${chartHeight + margin.top+10})`)
+                        .call(bottomAxis)
+            annotations.append("g")
+                        .attr("class", "x gridlines")
+                        .attr("transform",`translate(${margin.left},${chartHeight + margin.top+10})`)
+                        .call(bottomGridlines);
+
+            // create plot title
+            annotations.append('text')
+                .attr("x", chartWidth / 2.0 + margin.left)
+                .attr("y", 15)
+                .attr("class", "title")
+                .style("font-size", "16px")
+                .style("text-anchor", "middle")
+                .style("fill", "white")
+                .text("Time Series for " + clickedCoords.lat.toFixed(2).toString() + ", " + clickedCoords.lng.toFixed(2).toString());
+            
+            // create y-axis label
+            svg.append("text")
+               .attr("class", "y-axis label")
+               .attr("x", -chartHeight/2.0 - 10)
+               .attr("y", 10)
+               .attr("transform", "rotate(-90)")
+               .style("font-size", "12px")
+               .style("text-anchor", "middle")
+               .style("fill", "white")
+               .text("Surface Temperature (C°)");
+
+            // create x-axis label
+            svg.append('text')
+                .attr("x", chartWidth / 2.0 + margin.left)
+                .attr("y", chartHeight + margin.bottom + 10)
+                .attr("class", "x-axis label")
+                .style("font-size", "12px")
+                .style("text-anchor", "middle")
+                .style("fill", "white")
+                .text("Year");
+
+            // construct line
+            chartArea.append("path")
+                .datum(data)
+                .attr("fill", "none")
+                .attr("stroke", "white")
+                .attr("stroke-width", 2)
+                .attr("d", d3.line()
+                    .x(function(d) { return (timeScale(d.year)) })
+                    .y(function(d) { return (dataScale(d.TS)) })
+                )
+            
+            let hoverArea = chartArea.append("rect")
+                .attr("class", "overlay")
+                .attr("width", chartWidth)
+                .attr("height", chartHeight)
+                .style("opacity", 0)
+                .on("mouseover", () => focus.style("display", null))
+                .on("mouseout", () => focus.style("display", "none"))
+                .on("mousemove", mousemove);
+             
+            // add the dropline and hover tooltip
+            let focus = chartArea
+                .append("g")
+                .attr("class", "focus")
+                .style("display", "none")
+            
+            let block = focus.append("rect")
+                 .attr("x", 0)
+                 .attr("y", 0)
+                 .attr("width", "70px")
+                 .attr("height", "20px")
+                 .style("fill", "white")
+
+            let dropLine = focus.append("line")
+                 .attr("class", "x-hover-line hover-line")
+                 .attr("stroke-width", "1px")
+                 .style("stroke", "white")
+                 .attr("x1", 0)
+                 .attr("y1", 0)
+                 .attr("x2", 0)
+                 .attr("y2", chartHeight +10);
+            
+            function mousemove() {
+                let bisectDate = d3.bisector((d) => d.year).left;
+                let [mouseX, mouseY] = d3.pointer(event, this);
+                let x0 = timeScale.invert(mouseX);
+                let i = bisectDate(data, x0, 1);
+                let d0 = data[i - 1];
+                let d1 = data[i];
+                let d = x0 - d0.year > d1.year - x0 ? d1 : d0;
+
+                focus.attr("display", "block")
+                block.attr("transform",`translate(${timeScale(d.year)}, ${dataScale(d.TS)})`);
+                dropLine.attr("transform",`translate(${timeScale(d.year)}, 0)`);
+
+                focus.select(".tooltip").remove();
+                const tooltip = focus.append("text").attr("class", "tooltip");
+                tooltip.attr("x", 10).attr("y", 15).text(d.TS.toFixed(3));
+
+                tooltip.attr("transform",`translate(${timeScale(d.year)}, ${dataScale(d.TS)})`
+                );
+            }
+            
+            // elevate plotted line above gridlines
+            chartArea.raise()
+
+            let selectedYearData = data.find(d => d.year === currentYear).TS
+
+            chartArea.append("circle")
+                     .attr("cx", timeScale(currentYear))
+                     .attr("cy", dataScale(selectedYearData))
+                     .attr("r", "6px")
+                     .style("fill", "gray")
+                     .style("stroke", "white")
+                     .style("stroke-width", 2)
+        }
+                
+    </script>
+  </body>
+</html>
