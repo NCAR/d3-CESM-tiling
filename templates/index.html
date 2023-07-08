@@ -28,6 +28,7 @@
     </div>
 
     <script>
+        // -- MAP GLOBAL SETUP --
         // pass overall dataset min and max to set global constant colorbar
         let globalColorMin = Number("{{ colormin }}")
         let globalColorMax = Number("{{ colormax }}")
@@ -48,26 +49,11 @@
             maxZoom: 6
         }).addTo(map);
 
-        // function for calculating grid widths of each datapoint
-        function calculateWidths(arr) {
-            // console.log(arr)
-            let differences = [];
-            for (let i = 0; i < arr.length - 1; i++) {
-                let difference = Math.abs(arr[i + 1] - arr[i]);
-                differences.push(difference);
-            }
-            // console.log(differences)
-            return differences;
-        }
-
+        // --CREATING A GRIDLAYER--
         // extending a gridlayer to create a data-rendered overlay
         L.GridLayer.Test = L.GridLayer.extend({
             createTile: function (coords) {
                 var tile = L.DomUtil.create('div', 'leaflet-tile custom-tile');
-
-                // for debugging
-                // tile.innerHTML = [coords.x, coords.y, coords.z].join(', ');
-                // tile.style.outline = '1px dashed white';
 
                 // making request to backend for data for one tile
                 fetch('/tiles/' + coords.z.toString() + '/' + coords.x.toString() + '/' + coords.y.toString(), {
@@ -75,101 +61,76 @@
                 })
                 .then(response => response.json())
                 .then(data => {
-                    // handling received data
+                    // handling received data by extracting parts
                     let coordinatesArray = data.cornerpoints
                     data = JSON.parse(data.data).data
                     
-                    // creating a svg overlay to append to
+                    // creating an svg to cover the tile
                     var svgTile = d3.select(tile)
                             .append("svg")
                             .attr("class", "custom-tile-svg")
                             .attr("width", "100%")
-                            .attr("height", "100%");
-                
-                    let tileWidth = svgTile.attr("width")
-                    let tileHeight = svgTile.attr("height")
+                            .attr("height", "100%")
+                            .style("overflow", "visible")
 
-                    let svgElement = svgTile.node();
-                    let elementWidth = svgElement.getBoundingClientRect().width;
-                    let elementHeight = svgElement.getBoundingClientRect().height;
-
-                    // creating d3 extents and scales to help in plotting grid
+                    // adding a g tag where the rectangles will be appended
+                    var dataOverlay = svgTile.append("g")
+                            .attr("width", "100%")
+                            .attr("height", "100%")
+                            .attr("class", "custom-overlay")
+                            .style("position", "absolute")
+                            .style("top", 0)
+                            .style("left", 0)
+                            .style("overflow", "visible")
+                            .style("shape-rendering", "crispEdges") // smoothing out appearance
                     
-                    // dealing with colors
+                    // creating d3 colormap
                     let colorScale = d3.scaleSequential().interpolator(d3.interpolateRdBu).domain([globalColorMax, globalColorMin]);
 
-                    // x values of the data
-                    let xTileScale = d3.scaleLinear().domain([coordinatesArray[0], coordinatesArray[2]]).range([0, elementWidth])
+                    // --TILE SCALING ON X AXIS--
+                    // creating scale to convert range of x values from web mercator in meters to pixels
+                    let xTileScale = d3.scaleLinear().domain([coordinatesArray[0], coordinatesArray[2]]).range([0, 256])
+
+                    // finding out the width of each rectangle by looking at the first two x values
                     let xValues = [...new Set(data.map(d => d.x))]
+                    let xGap = xTileScale(xValues[1]) - xTileScale(xValues[0])
 
-                    let xTileMin = xTileScale(xValues.at(0))
-                    let xTileMax = xTileScale(xValues.at(-1))
-                    let xRange = xTileMax - xTileMin
-
-                    console.log("Range: " + xRange)
-
-                    let xDifferences = calculateWidths(xValues)
-
-                    console.log("xDifferences: " + xDifferences)
-
-                    let xDiffInitial = xTileScale(xDifferences.at(0))
-                    let xDiffFinal = xTileScale(xDifferences.at(-1))
-
-                    console.log(xRange + xDiffInitial + xDiffFinal)
-
-                    // y values of the data
-                    let yTileScale = d3.scaleLinear().domain([coordinatesArray[3], coordinatesArray[1]]).range([elementHeight, 0])
+                    // --TILE SCALING ON Y AXIS--
+                    // creating scale to convert range of y values from web mercator in meters to pixels
+                    let yTileScale = d3.scaleLinear().domain([coordinatesArray[3], coordinatesArray[1]]).range([256, 0])
+                    
+                    // finding out the height of each rectangle by looking at the first two y values
                     let yValues = [...new Set(data.map(d => d.y))]
+                    let yGap = yTileScale(yValues[1]) - yTileScale(yValues[0])
 
-                    let yDifferences = calculateWidths(yValues)
-
-                    // var overlayTile = d3.select(tile)
-                    //         .append("svg")
-                    //         .attr("class", "data-overlay-svg")
-                    //         .style("border", "dashed red 1px")
-
-                    // appending a rectangle for each data point
+                    // --ITERATING OVER RECTANGLES--
+                    // appending a rectangle for each data point using the positions and dimensions just calculated
                     data.forEach((point, index) => {
-                        console.log(xValues.indexOf(point.x))
-                        let pointWidth = xTileScale(xDifferences[xValues.indexOf(point.x)])
-                        let pointHeight = yTileScale(yDifferences[yValues.indexOf(point.y)])
-                        console.log(pointWidth)
-                        let xNumber = xValues.length
-                        let yNumber = yValues.length
-
-                        svgTile.append("rect")
+                        dataOverlay.append("rect")
                                .attr("x", xTileScale(point.x))
                                .attr("y", yTileScale(point.y))
-                               .attr("width", Math.abs(elementWidth/xNumber))
-                               .attr("height", Math.abs(elementHeight/yNumber))
+                               .attr("class", xTileScale(point.x))
+                               .attr("width", xGap)
+                               .attr("height", yGap)
                                .style("fill", colorScale(point.TS))
+                               .style("overflow", "visible")
                                .style("opacity", 0.8)
-
-                        // svgTile.append("circle")
-                        //        .attr("cx", xTileScale(point.x))
-                        //        .attr("cy", yTileScale(point.y))
-                        //        .attr("r", 2)
-                        //        .style("fill", "green")
                     })
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                });
 
+                    // transforming the container g tag to ensure data points are centered in their rectangles
+                    dataOverlay.style("transform", `translate(${-xGap/2}px, ${yGap/2}px)`)
+                 })
                 return tile;
             }
         });
-
         L.gridLayer.test = function(opts) {
             return new L.GridLayer.Test(opts);
         };
         L.gridLayer.test().addTo(map);
-    
     </script>
 
     <!-- adding landmass outlines -->
     <script src="{{ url_for('static', filename='js/outlines.js')}}"></script>
-    <!-- <script src="{{ url_for('static', filename='js/reference.js')}}"></script> -->
 
     <!-- d3.js code for time series on click -->
     <script>
