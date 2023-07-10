@@ -22,7 +22,7 @@
             Coordinates: (<span id="lat-update">N/A</span>, <span id="lon-update">N/A</span>)
         </p>
         <p>
-            CESM2 Predicted 2023 Mean Surface Temperature: <span id="temp-update">N/A</span>
+            CESM2 Predicted 2023 Mean Surface Temperature: <span id="data-update">N/A</span>
         </p>
         <svg id="time-series-chart" height="350" width="350"></svg>
     </div>
@@ -49,23 +49,36 @@
             maxZoom: 6
         }).addTo(map);
 
+        map.on('mousemove', function(e) {
+            let currentLat = e.latlng.lat
+            let currentLon = e.latlng.lng
+
+            document.getElementById('lat-update').innerHTML = (Math.abs(currentLat).toFixed(2)) + "°" + (currentLat >= 0 ? 'N' : 'S');
+            document.getElementById('lon-update').innerHTML = (Math.abs(currentLon).toFixed(2)) + "°" + (currentLon >= 0 ? 'E' : 'W');
+        });
+        
+
         // --CREATING A GRIDLAYER--
         // extending a gridlayer to create a data-rendered overlay
         L.GridLayer.Test = L.GridLayer.extend({
             createTile: function (coords) {
                 var tile = L.DomUtil.create('div', 'leaflet-tile custom-tile');
 
-                // making request to backend for data for one tile
-                fetch('/tiles/' + coords.z.toString() + '/' + coords.x.toString() + '/' + coords.y.toString(), {
-                    method: 'GET',
-                })
-                .then(response => response.json())
-                .then(data => {
+                console.log(this._tileCoordsToBounds(coords))
+                async function fetchData() {
+                    let response = await fetch('/tiles/' + coords.z.toString() + '/' + coords.x.toString() + '/' + coords.y.toString());
+                    let data = await response.json();
+                    return data;
+                }
+
+                async function renderData() {
+                    let data = await fetchData();
+
                     // handling received data by extracting parts
                     let coordinatesArray = data.cornerpoints
                     data = JSON.parse(data.data).data
-                    
-                    // creating an svg to cover the tile
+
+                        // creating an svg to cover the tile
                     var svgTile = d3.select(tile)
                             .append("svg")
                             .attr("class", "custom-tile-svg")
@@ -104,22 +117,27 @@
                     let yGap = yTileScale(yValues[1]) - yTileScale(yValues[0])
 
                     // --ITERATING OVER RECTANGLES--
-                    // appending a rectangle for each data point using the positions and dimensions just calculated
-                    data.forEach((point, index) => {
-                        dataOverlay.append("rect")
-                               .attr("x", xTileScale(point.x))
-                               .attr("y", yTileScale(point.y))
-                               .attr("class", xTileScale(point.x))
-                               .attr("width", xGap)
-                               .attr("height", yGap)
-                               .style("fill", colorScale(point.TS))
-                               .style("overflow", "visible")
-                               .style("opacity", 0.8)
-                    })
-
+                    // creating a rectangle for each data point using the positions and dimensions just calculated
+                    let rectangles = dataOverlay.selectAll("rect")
+                                .data( data )
+                                .join("rect")
+                                .attr("x", d => xTileScale(d.x))
+                                .attr("y", d => yTileScale(d.y))
+                                .attr("width", xGap)
+                                .attr("height", yGap)
+                                .style("fill", d => colorScale(d.TS))
+                                .style("opacity", 0.8)
+                                .attr("class", "hoverable");
+                        
+                    rectangles.on("mouseover", function() {
+                        document.getElementById('data-update').innerHTML = (d3.select(this).datum()['TS'].toFixed(5))
+                    });
+                   
                     // transforming the container g tag to ensure data points are centered in their rectangles
                     dataOverlay.style("transform", `translate(${-xGap/2}px, ${-yGap/2}px)`)
-                 })
+
+                }
+                renderData();
                 return tile;
             }
         });
@@ -172,7 +190,7 @@
                     // call a function to process the received dataframe with d3.js and plot it
                     data = JSON.parse(data.data)
 
-                    console.log(data)
+                    // console.log(data)
                     plotData(data, clickedCoords);
                 })
                 .catch(error => {
