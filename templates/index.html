@@ -24,10 +24,24 @@
         <p>
             CESM2 Predicted 2023 Mean Surface Temperature: <span id="data-update">N/A</span>
         </p>
+
+
+        <label for="forcing-select">Forcing type:</label>
+        <select name="forcing-select" id="forcing-select">
+            <option value="cmip6">cmip6</option>
+            <option value="smbb">smbb</option>
+        </select>
+
+        <input type="range" id="year-slider" name="year-slider" min="1850" max="2100" value="2023">
+        <label for="year-slider">Year</label>
+
         <svg id="time-series-chart" height="350" width="350"></svg>
     </div>
 
     <script>
+        let year = document.getElementById("year-slider");
+        let forcingType = document.getElementById("forcing-select");
+
         // -- MAP GLOBAL SETUP --
         // pass overall dataset min and max to set global constant colorbar
         let globalColorMin = Number("{{ colormin }}")
@@ -63,11 +77,21 @@
         L.GridLayer.Test = L.GridLayer.extend({
             createTile: function (coords) {
                 var tile = L.DomUtil.create('div', 'leaflet-tile custom-tile');
+                
+                var nePoint = this._tileCoordsToBounds(coords)._northEast;
+                var swPoint = this._tileCoordsToBounds(coords)._southWest;
 
-                console.log(this._tileCoordsToBounds(coords))
+                // await fetch(nePoint.lng.toString() + '/' + nePoint.lat.toString() + '/' + swPoint.lng.toString() + '/' + swPoint.lat.toString() + '/' + year.value.toString() + '/' + forcingType.value.toString())
+
                 async function fetchData() {
-                    let response = await fetch('/tiles/' + coords.z.toString() + '/' + coords.x.toString() + '/' + coords.y.toString());
+                    // let response = await fetch('/tiles/' + coords.z.toString() + '/' + coords.x.toString() + '/' + coords.y.toString());
+                    // console.log('/' + encodeURIComponent(nePoint.lng.toString()) + '/' + encodeURIComponent(nePoint.lat.toString()) + '/' + encodeURIComponent(swPoint.lng.toString()) + '/' + encodeURIComponent(swPoint.lat.toString()) + '/' + encodeURIComponent(year.value.toString()) + '/' + encodeURIComponent(forcingType.value.toString()))
+                    let response = await fetch('/tiles/' + nePoint.lng.toString() + '/' + nePoint.lat.toString() + '/' + swPoint.lng.toString() + '/' + swPoint.lat.toString() + '/' + year.value.toString() + '/' + forcingType.value.toString())
+                    // let response = await fetch('/' + nePoint.lng.toString())
+
+                    // let response = await fetch('/tiles/' + nePoint.lng.toString())
                     let data = await response.json();
+
                     return data;
                 }
 
@@ -78,7 +102,10 @@
                     let coordinatesArray = data.cornerpoints
                     data = JSON.parse(data.data).data
 
-                        // creating an svg to cover the tile
+                    console.log(coordinatesArray)
+                    console.log(data)
+
+                    // creating an svg to cover the tile
                     var svgTile = d3.select(tile)
                             .append("svg")
                             .attr("class", "custom-tile-svg")
@@ -110,7 +137,7 @@
 
                     // --TILE SCALING ON Y AXIS--
                     // creating scale to convert range of y values from web mercator in meters to pixels
-                    let yTileScale = d3.scaleLinear().domain([coordinatesArray[3], coordinatesArray[1]]).range([256, 0])
+                    let yTileScale = d3.scaleLinear().domain([coordinatesArray[1], coordinatesArray[3]]).range([256, 0])
                     
                     // finding out the height of each rectangle by looking at the first two y values
                     let yValues = [...new Set(data.map(d => d.y))]
