@@ -25,15 +25,18 @@
             CESM2 Predicted 2023 Mean Surface Temperature: <span id="data-update">N/A</span>
         </p>
 
+        <div>
+            <label for="forcing-select">Forcing type:</label>
+            <select name="forcing-select" id="forcing-select">
+                <option value="cmip6">cmip6</option>
+                <option value="smbb">smbb</option>
+            </select>
+        </div>
 
-        <label for="forcing-select">Forcing type:</label>
-        <select name="forcing-select" id="forcing-select">
-            <option value="cmip6">cmip6</option>
-            <option value="smbb">smbb</option>
-        </select>
-
-        <input type="range" id="year-slider" name="year-slider" min="1850" max="2100" value="2023">
-        <label for="year-slider">Year</label>
+        <div id="year-controls-container">
+            <label for="year-slider">Year: <span id="year-update"></span></label>
+            <input type="range" id="year-slider" name="year-slider" min="1850" max="2100" value="2023">
+        </div>
 
         <svg id="time-series-chart" height="350" width="350"></svg>
     </div>
@@ -42,11 +45,9 @@
         let year = document.getElementById("year-slider");
         let forcingType = document.getElementById("forcing-select");
 
-        // -- MAP GLOBAL SETUP --
-        // pass overall dataset min and max to set global constant colorbar
-        let globalColorMin = Number("{{ colormin }}")
-        let globalColorMax = Number("{{ colormax }}")
+        document.getElementById('year-update').innerHTML = year.value;
 
+        // -- MAP GLOBAL SETUP --
         // create Leaflet map object
         var map = new L.map('map', {
             center: [30,0], 
@@ -70,28 +71,19 @@
             document.getElementById('lat-update').innerHTML = (Math.abs(currentLat).toFixed(2)) + "°" + (currentLat >= 0 ? 'N' : 'S');
             document.getElementById('lon-update').innerHTML = (Math.abs(currentLon).toFixed(2)) + "°" + (currentLon >= 0 ? 'E' : 'W');
         });
-        
 
         // --CREATING A GRIDLAYER--
         // extending a gridlayer to create a data-rendered overlay
-        L.GridLayer.Test = L.GridLayer.extend({
+        let DataLayer = L.GridLayer.extend({
             createTile: function (coords) {
                 var tile = L.DomUtil.create('div', 'leaflet-tile custom-tile');
                 
                 var nePoint = this._tileCoordsToBounds(coords)._northEast;
                 var swPoint = this._tileCoordsToBounds(coords)._southWest;
 
-                // await fetch(nePoint.lng.toString() + '/' + nePoint.lat.toString() + '/' + swPoint.lng.toString() + '/' + swPoint.lat.toString() + '/' + year.value.toString() + '/' + forcingType.value.toString())
-
                 async function fetchData() {
-                    // let response = await fetch('/tiles/' + coords.z.toString() + '/' + coords.x.toString() + '/' + coords.y.toString());
-                    // console.log('/' + encodeURIComponent(nePoint.lng.toString()) + '/' + encodeURIComponent(nePoint.lat.toString()) + '/' + encodeURIComponent(swPoint.lng.toString()) + '/' + encodeURIComponent(swPoint.lat.toString()) + '/' + encodeURIComponent(year.value.toString()) + '/' + encodeURIComponent(forcingType.value.toString()))
-                    let response = await fetch('/tiles/' + nePoint.lng.toString() + '/' + nePoint.lat.toString() + '/' + swPoint.lng.toString() + '/' + swPoint.lat.toString() + '/' + year.value.toString() + '/' + forcingType.value.toString())
-                    // let response = await fetch('/' + nePoint.lng.toString())
-
-                    // let response = await fetch('/tiles/' + nePoint.lng.toString())
+                    let response = await fetch('/tiles/' + nePoint.lng.toString() + '/' + nePoint.lat.toString() + '/' + swPoint.lng.toString() + '/' + swPoint.lat.toString())
                     let data = await response.json();
-
                     return data;
                 }
 
@@ -100,10 +92,8 @@
 
                     // handling received data by extracting parts
                     let coordinatesArray = data.cornerpoints
+                    let colorlim = data.colorlim
                     data = JSON.parse(data.data).data
-
-                    console.log(coordinatesArray)
-                    console.log(data)
 
                     // creating an svg to cover the tile
                     var svgTile = d3.select(tile)
@@ -125,7 +115,7 @@
                             .style("shape-rendering", "crispEdges") // smoothing out appearance
                     
                     // creating d3 colormap
-                    let colorScale = d3.scaleSequential().interpolator(d3.interpolateRdBu).domain([globalColorMax, globalColorMin]);
+                    let colorScale = d3.scaleSequential().interpolator(d3.interpolateRdBu).domain(colorlim);
 
                     // --TILE SCALING ON X AXIS--
                     // creating scale to convert range of x values from web mercator in meters to pixels
@@ -163,15 +153,60 @@
                     // transforming the container g tag to ensure data points are centered in their rectangles
                     dataOverlay.style("transform", `translate(${-xGap/2}px, ${-yGap/2}px)`)
 
+                    tile.rectElements = svg.selectAll('rect').nodes();
                 }
                 renderData();
                 return tile;
             }
         });
-        L.gridLayer.test = function(opts) {
-            return new L.GridLayer.Test(opts);
-        };
-        L.gridLayer.test().addTo(map);
+  
+        var dataLayer = new DataLayer();
+        dataLayer.addTo(map);
+
+        function updateDataset() {
+            fetch("/dims/" + year.value.toString() + "/" + forcingType.value.toString());
+
+            var tiles = dataLayer._tiles;
+            Object.keys(tiles).forEach(function(tileKey) {
+                var tile = tiles[tileKey].el;
+                var coords = tiles[tileKey].coords;
+                nePoint = dataLayer._tileCoordsToBounds(coords)._northEast;
+                swPoint = dataLayer._tileCoordsToBounds(coords)._southWest;
+
+                async function fetchUpdatedData() {
+                    let response = await fetch('/tiles/' + nePoint.lng.toString() + '/' + nePoint.lat.toString() + '/' + swPoint.lng.toString() + '/' + swPoint.lat.toString())
+                    let data = await response.json();
+                    return data;
+                }
+             
+                async function renderUpdatedData() {
+                    let data = await fetchUpdatedData();
+
+                    // handling received data by extracting parts
+                    let coordinatesArray = data.cornerpoints
+                    let colorlim = data.colorlim
+                    data = JSON.parse(data.data).data
+
+                    let colorScale = d3.scaleSequential().interpolator(d3.interpolateRdBu).domain(colorlim);
+
+                    let updatedDataArray = data.map(d => d.TS)
+
+                    var rectElements = d3.select(tile).selectAll('rect').nodes();
+                    rectElements.forEach(function(rect, i) {
+                        rect.__data__.TS = updatedDataArray[i];
+                        rect.style.fill = colorScale(rect.__data__.TS);
+                    });  
+                }
+
+                // tile.on("tileload")
+                renderUpdatedData();
+                document.getElementById('year-update').innerHTML = year.value;
+            });
+        }
+        
+        year.oninput = updateDataset;
+        forcingType.onchange = updateDataset;
+
     </script>
 
     <!-- adding landmass outlines -->
