@@ -40,3 +40,12 @@ body {
 .hoverable {
     pointer-events: auto;
 }
+
+#year-controls-container {
+    display: flex;
+    flex-direction: column;
+}
+
+.custom-tile {
+    shape-rendering: "crispEdges";
+}

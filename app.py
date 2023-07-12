@@ -69,7 +69,7 @@ def get_tile(ne_lng, ne_lat, sw_lng, sw_lat):
         'data': frame.to_dataframe().to_json(orient='table'),
         'cornerpoints': cornerpoints,
         # 'colorlim': [float(data_slice['TS'].max()), float(data_slice['TS'].min())]
-        'colorlim': [max_val, min_val]
+        'colorlim': [min_val, max_val]
     }
     return jsonify(json_data)
     
