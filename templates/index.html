@@ -25,7 +25,7 @@
             CESM2 Predicted 2023 Mean Surface Temperature: <span id="data-update">N/A</span>
         </p>
 
-        <div>
+        <div id="forcing-controls-container">
             <label for="forcing-select">Forcing type:</label>
             <select name="forcing-select" id="forcing-select">
                 <option value="cmip6">cmip6</option>
@@ -34,37 +34,35 @@
         </div>
 
         <div id="year-controls-container">
-            <label for="year-slider">Year: <span id="year-update"></span></label>
+            <label for="year-slider">Year: <span id="year-update">2023</span></label>
             <input type="range" id="year-slider" name="year-slider" min="1850" max="2100" value="2023">
         </div>
 
-        <div>
+        <div id="color-controls-container">
             <label for="colorbar-select">Colorbar:</label>
             <select name="colorbar-select" id="colorbar-select" value=0>
                 <option value=0>Blue-Red</option>
-                <option value=1>Viridis</option>
-                <option value=2>Inferno</option>
-                <option value=3>Cividis</option>
+                <option value=1>Blue-Green-Yellow</option>
+                <option value=2>Purple-Red-Yellow</option>
+                <option value=3>Blue-Gray-Yellow (vision-deficient optimized)</option>
             </select>
         </div>
-
         <svg id="time-series-chart" height="350" width="350"></svg>
     </div>
 
     <script>
-        let colorbars = [d3.interpolateRdBu, d3.interpolateViridis, d3.interpolateInferno, d3.interpolateCividis]
+        // global variables
+        let colorbars = [d3.interpolateRdBu, d3.interpolateViridis, d3.interpolateInferno, d3.interpolateCividis];
+        let globalColorLim = [];
 
         let colorbar = document.getElementById("colorbar-select");
         let year = document.getElementById("year-slider");
         let forcingType = document.getElementById("forcing-select");
 
-        let globalColorLim = [];
-
         let latUpdate = document.getElementById('lat-update');
-        let lonUpdate = document.getElementById('lat-update');
+        let lonUpdate = document.getElementById('lon-update');
         let yearUpdate = document.getElementById('year-update');
-
-        yearUpdate.innerHTML = year.value;
+        let dataUpdate = document.getElementById('data-update');
 
         // -- MAP GLOBAL SETUP --
         // create Leaflet map object
@@ -75,7 +73,7 @@
             zoomSnap: 1,
             maxBounds: [[-84, -Infinity],[84, Infinity]],
             maxBoundsViscosity: 1.0
-        })
+        });
     
         // basemap
         var CartoDB_DarkMatterNoLabels = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
@@ -83,10 +81,10 @@
             maxZoom: 6
         }).addTo(map);
 
+        // update coordinates on hover in the html
         map.on('mousemove', function(e) {
-            let currentLat = e.latlng.lat
-            let currentLon = e.latlng.lng
-
+            let currentLat = e.latlng.lat;
+            let currentLon = e.latlng.lng;
             latUpdate.innerHTML = (Math.abs(currentLat).toFixed(2)) + "°" + (currentLat >= 0 ? 'N' : 'S');
             lonUpdate.innerHTML = (Math.abs(currentLon).toFixed(2)) + "°" + (currentLon >= 0 ? 'E' : 'W');
         });
@@ -94,23 +92,23 @@
         // --CREATING A GRIDLAYER--
         // extending a gridlayer to create a data-rendered overlay
         let DataLayer = L.GridLayer.extend({
-            createTile: function (coords) {
+            createTile: function (coords, done) {
                 var tile = L.DomUtil.create('div', 'leaflet-tile custom-tile');
 
                 var nePoint = this._tileCoordsToBounds(coords)._northEast;
                 var swPoint = this._tileCoordsToBounds(coords)._southWest;
 
                 async function renderData() {
-                    let response = await fetch('/tiles/' + nePoint.lng.toString() + '/' + nePoint.lat.toString() + '/' + swPoint.lng.toString() + '/' + swPoint.lat.toString())
+                    let response = await fetch('/tiles/' + nePoint.lng.toString() + '/' + nePoint.lat.toString() + '/' + swPoint.lng.toString() + '/' + swPoint.lat.toString());
                     let data = await response.json();
 
-                    // handling received data by extracting parts
-                    let coordinatesArray = data.cornerpoints
-                    let colorlim = data.colorlim
+                    // parse json response
+                    let coordinatesArray = data.cornerpoints;
+                    let colorlim = data.colorlim;
+                    data = JSON.parse(data.data).data;
 
+                    // set colorlim (reverse if using blue-red color scheme)
                     globalColorLim = (colorbar.value == 0 ? [colorlim[1], colorlim[0]] : colorlim);
-
-                    data = JSON.parse(data.data).data
 
                     // creating an svg to cover the tile
                     var svgTile = d3.select(tile)
@@ -119,7 +117,7 @@
                             .attr("width", "100%")
                             .attr("height", "100%")
                             .style("overflow", "visible")
-                            .style("shape-rendering", "crispEdges")
+                            .style("shape-rendering", "crispEdges");
 
                     // adding a g tag where the rectangles will be appended
                     var dataOverlay = svgTile.append("g")
@@ -130,26 +128,26 @@
                             .style("top", 0)
                             .style("left", 0)
                             .style("overflow", "visible")
-                            .style("shape-rendering", "crispEdges") // smoothing out appearance
+                            .style("shape-rendering", "crispEdges"); // smoothing out appearance
                     
                     // creating d3 colormap
                     let colorScale = d3.scaleSequential().interpolator(colorbars[colorbar.value]).domain(globalColorLim);
 
                     // --TILE SCALING ON X AXIS--
                     // creating scale to convert range of x values from web mercator in meters to pixels
-                    let xTileScale = d3.scaleLinear().domain([coordinatesArray[0], coordinatesArray[2]]).range([0, 256])
+                    let xTileScale = d3.scaleLinear().domain([coordinatesArray[0], coordinatesArray[2]]).range([0, 256]);
 
                     // finding out the width of each rectangle by looking at the first two x values
                     let xValues = [...new Set(data.map(d => d.x))]
-                    let xGap = xTileScale(xValues[1]) - xTileScale(xValues[0])
+                    let xGap = xTileScale(xValues[1]) - xTileScale(xValues[0]);
 
                     // --TILE SCALING ON Y AXIS--
                     // creating scale to convert range of y values from web mercator in meters to pixels
-                    let yTileScale = d3.scaleLinear().domain([coordinatesArray[1], coordinatesArray[3]]).range([256, 0])
+                    let yTileScale = d3.scaleLinear().domain([coordinatesArray[1], coordinatesArray[3]]).range([256, 0]);
                     
                     // finding out the height of each rectangle by looking at the first two y values
-                    let yValues = [...new Set(data.map(d => d.y))]
-                    let yGap = yTileScale(yValues[1]) - yTileScale(yValues[0])
+                    let yValues = [...new Set(data.map(d => d.y))];
+                    let yGap = yTileScale(yValues[1]) - yTileScale(yValues[0]);
 
                     // --ITERATING OVER RECTANGLES--
                     // creating a rectangle for each data point using the positions and dimensions just calculated
@@ -163,27 +161,33 @@
                                 .style("fill", d => colorScale(d.TS))
                                 .style("opacity", 0.8)
                                 .attr("class", "hoverable");
-                        
+                    
+                    // update data value on hover in html
                     rectangles.on("mouseover", function() {
-                        document.getElementById('data-update').innerHTML = (d3.select(this).datum()['TS'].toFixed(5))
+                        dataUpdate.innerHTML = (d3.select(this).datum()['TS'].toFixed(5));
                     });
                    
                     // transforming the container g tag to ensure data points are centered in their rectangles
-                    dataOverlay.style("transform", `translate(${-xGap/2}px, ${-yGap/2}px)`)
+                    dataOverlay.style("transform", `translate(${-xGap/2}px, ${-yGap/2}px)`);
+                    done(null, tile);
                 }
                 renderData();
                 return tile;
             }
         });
   
+        // add gridlayer to map
         var dataLayer = new DataLayer();
         dataLayer.addTo(map);
 
-        function updateDataset() {
+        // function called when selected forcing type / year changes
+        async function updateDataset() {
             yearUpdate.innerHTML = year.value;
 
-            fetch("/dims/" + year.value.toString() + "/" + forcingType.value.toString());
+            // run function in backend to update the data that will be fetched in renderUpdatedData()
+            await fetch("/dims/" + year.value.toString() + "/" + forcingType.value.toString());
 
+            // iterate over gridlayer tiles to update the data being fetched for each one
             var tiles = dataLayer._tiles;
             Object.keys(tiles).forEach(function(tileKey) {
                 var tile = tiles[tileKey].el;
@@ -191,51 +195,55 @@
                 nePoint = dataLayer._tileCoordsToBounds(coords)._northEast;
                 swPoint = dataLayer._tileCoordsToBounds(coords)._southWest;
              
+                // function that reassigns the data to + recolors the rectangles in a tile
                 async function renderUpdatedData() {
-                    let response = await fetch('/tiles/' + nePoint.lng.toString() + '/' + nePoint.lat.toString() + '/' + swPoint.lng.toString() + '/' + swPoint.lat.toString())
+                    // requests data that has been updated to match the newly selected forcing type + time
+                    let response = await fetch('/tiles/' + nePoint.lng.toString() + '/' + nePoint.lat.toString() + '/' + swPoint.lng.toString() + '/' + swPoint.lat.toString());
                     let data = await response.json();
 
-                    // handling received data by extracting parts
-                    let coordinatesArray = data.cornerpoints
-                    let colorlim = data.colorlim
+                    let coordinatesArray = data.cornerpoints;
+                    let colorlim = data.colorlim;
+                    data = JSON.parse(data.data).data;
                     
                     globalColorLim = (colorbar.value == 0 ? [colorlim[1], colorlim[0]] : colorlim);
  
-                    data = JSON.parse(data.data).data
-
                     let colorScale = d3.scaleSequential().interpolator(colorbars[colorbar.value]).domain(globalColorLim);
 
-                    let updatedDataArray = data.map(d => d.TS)
+                    let updatedDataArray = data.map(d => d.TS);
 
+                    // iterate over the rectangles in the tile to update the data and fill color
                     var rectElements = d3.select(tile).selectAll('rect').nodes();
                     rectElements.forEach(function(rect, i) {
                         rect.__data__.TS = updatedDataArray[i];
                         rect.style.fill = colorScale(rect.__data__.TS);
-                    });  
+                    }) 
                 }
                 renderUpdatedData();
-            });
-        }
+            })
+        };
 
-        function updateColors() {
+        // function called when the user changes the selected colorbar
+        async function updateColors() {
+            // check if color domain needs to be reversed
             let oldColorLim = globalColorLim;
             globalColorLim = (colorbar.value == 0 ? oldColorLim.sort((a, b) => b - a) : oldColorLim.sort());
 
             let colorScale = d3.scaleSequential().interpolator(colorbars[colorbar.value]).domain(globalColorLim);
+            
+            // iterate over gridlayer tiles and update fill color of rectangles
             var tiles = dataLayer._tiles;
-
             Object.keys(tiles).forEach(function(tileKey) {
                 var tile = tiles[tileKey].el;
                 var rectElements = d3.select(tile).selectAll('rect').nodes();
                     rectElements.forEach(function(rect, i) {
                         rect.style.fill = colorScale(rect.__data__.TS);
-                    });  
+                    }) 
             })
-        }
+        };
+
         colorbar.onchange = updateColors;
         year.oninput = updateDataset;
         forcingType.onchange = updateDataset;
-
     </script>
 
     <!-- adding landmass outlines -->

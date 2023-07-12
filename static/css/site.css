@@ -15,6 +15,14 @@ body {
     height: 100vh;
 }
 
+select {
+    font-family: "Poppins Regular";
+}
+
+option {
+    font-family: "Poppins Regular";
+}
+
 #map {
     height: 100vh;
     width: 75%;
@@ -47,5 +55,5 @@ body {
 }
 
 .custom-tile {
-    shape-rendering: "crispEdges";
+    shape-rendering: "crispEdges" !important;
 }
