@@ -17,21 +17,36 @@ body {
 
 select {
     font-family: "Poppins Regular";
+    color: white;
+    background-color: rgb(34, 34, 34);
+    padding: 0.15em;
 }
 
-option {
-    font-family: "Poppins Regular";
+select:hover {
+    cursor: pointer;
+}
+
+input:hover {
+    cursor: pointer;
+}
+
+input {
+    accent-color: gray;
+}
+
+path:hover {
+    cursor: grab;
 }
 
 #map {
     height: 100vh;
-    width: 75%;
+    width: 70%;
     background-color: rgb(34, 34, 34);
 }
 
 #sidebar {
     height: 100vh;
-    width: 25%;
+    width: 30%;
     background-color: rgb(34, 34, 34);
     border-left: solid thin rgb(190, 190, 190);
     padding: 1em;
@@ -56,4 +71,19 @@ option {
 
 .custom-tile {
     shape-rendering: "crispEdges" !important;
+}
+
+.option-div {
+    padding-top: 1em;
+    display: flex;
+    justify-content: space-between;
+}
+
+.option-div select{
+    min-width: 23em;
+}
+
+#year-controls-container {
+    padding-top: 3em;
+    text-align: center;
 }

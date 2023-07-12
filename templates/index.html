@@ -22,32 +22,46 @@
             Coordinates: (<span id="lat-update">N/A</span>, <span id="lon-update">N/A</span>)
         </p>
         <p>
-            CESM2 Predicted 2023 Mean Surface Temperature: <span id="data-update">N/A</span>
+            CESM2 Predicted <span id="year-update1">2023</span> Value: <span id="data-update">N/A</span>
         </p>
 
-        <div id="forcing-controls-container">
+        <div id="data-variable-container" class="option-div">
+            <label for="var-select">Variable:</label>
+            <select name="var-select" id="var-select" value="TS">
+                <option value="TS">Surface temperature (radiative)</option>
+                <option value="FSNS">Net solar flux at surface</option>
+                <option value="PRECL">Large-scale (stable) precipitation rate</option>
+                <option value="PS">Surface pressure</option>
+                <option value="PSL">Sea level pressure</option>
+                <option value="TREFHT">Reference height temperature</option>
+                <option value="TREFHTMN">Minimum reference height temperature</option>
+                <option value="TREFHTMX">Maximum reference height temperature</option>
+            </select>
+        </div>
+
+        <div id="forcing-controls-container" class="option-div">
             <label for="forcing-select">Forcing type:</label>
-            <select name="forcing-select" id="forcing-select">
+            <select name="forcing-select" id="forcing-select" value="cmip6">
                 <option value="cmip6">cmip6</option>
                 <option value="smbb">smbb</option>
             </select>
         </div>
 
-        <div id="year-controls-container">
-            <label for="year-slider">Year: <span id="year-update">2023</span></label>
-            <input type="range" id="year-slider" name="year-slider" min="1850" max="2100" value="2023">
-        </div>
-
-        <div id="color-controls-container">
+        <div id="color-controls-container" class="option-div">
             <label for="colorbar-select">Colorbar:</label>
             <select name="colorbar-select" id="colorbar-select" value=0>
                 <option value=0>Blue-Red</option>
-                <option value=1>Blue-Green-Yellow</option>
-                <option value=2>Purple-Red-Yellow</option>
-                <option value=3>Blue-Gray-Yellow (vision-deficient optimized)</option>
+                <option value=1>Viridis (Blue-Green-Yellow)</option>
+                <option value=2>Inferno (Purple-Red-Yellow)</option>
+                <option value=3>Cividis (Blue-Gray-Yellow)</option>
             </select>
         </div>
-        <svg id="time-series-chart" height="350" width="350"></svg>
+        <div id="year-controls-container" class="">
+            
+            <input type="range" id="year-slider" name="year-slider" min="1850" max="2100" value="2023">
+            <label for="year-slider">Year: <span id="year-update2">2023</span></label>
+        </div>
+        <svg id="time-series-chart" height="450" width="450"></svg>
     </div>
 
     <script>
@@ -55,14 +69,18 @@
         let colorbars = [d3.interpolateRdBu, d3.interpolateViridis, d3.interpolateInferno, d3.interpolateCividis];
         let globalColorLim = [];
 
+        let currentVariable = document.getElementById("var-select");
+        let forcingType = document.getElementById("forcing-select");
         let colorbar = document.getElementById("colorbar-select");
         let year = document.getElementById("year-slider");
-        let forcingType = document.getElementById("forcing-select");
 
         let latUpdate = document.getElementById('lat-update');
         let lonUpdate = document.getElementById('lon-update');
-        let yearUpdate = document.getElementById('year-update');
+        let yearUpdate1 = document.getElementById('year-update1');
+        let yearUpdate2 = document.getElementById('year-update2');
         let dataUpdate = document.getElementById('data-update');
+
+        fetch("/dataset/" + currentVariable.value)
 
         // -- MAP GLOBAL SETUP --
         // create Leaflet map object
@@ -92,7 +110,7 @@
         // --CREATING A GRIDLAYER--
         // extending a gridlayer to create a data-rendered overlay
         let DataLayer = L.GridLayer.extend({
-            createTile: function (coords, done) {
+            createTile: function (coords) {
                 var tile = L.DomUtil.create('div', 'leaflet-tile custom-tile');
 
                 var nePoint = this._tileCoordsToBounds(coords)._northEast;
@@ -158,18 +176,17 @@
                                 .attr("y", d => yTileScale(d.y))
                                 .attr("width", xGap)
                                 .attr("height", yGap)
-                                .style("fill", d => colorScale(d.TS))
+                                .style("fill", d => colorScale(d[currentVariable.value]))
                                 .style("opacity", 0.8)
                                 .attr("class", "hoverable");
                     
                     // update data value on hover in html
                     rectangles.on("mouseover", function() {
-                        dataUpdate.innerHTML = (d3.select(this).datum()['TS'].toFixed(5));
+                        dataUpdate.innerHTML = (d3.select(this).datum()[currentVariable.value].toFixed(5));
                     });
                    
                     // transforming the container g tag to ensure data points are centered in their rectangles
                     dataOverlay.style("transform", `translate(${-xGap/2}px, ${-yGap/2}px)`);
-                    done(null, tile);
                 }
                 renderData();
                 return tile;
@@ -180,9 +197,16 @@
         var dataLayer = new DataLayer();
         dataLayer.addTo(map);
 
+        map.on('mouseout', function(e) {
+            latUpdate.innerHTML = "N/A"
+            lonUpdate.innerHTML = "N/A"
+            dataUpdate.innerHTML = "N/A"
+        });
+
         // function called when selected forcing type / year changes
         async function updateDataset() {
-            yearUpdate.innerHTML = year.value;
+            yearUpdate1.innerHTML = year.value;
+            yearUpdate2.innerHTML = year.value;
 
             // run function in backend to update the data that will be fetched in renderUpdatedData()
             await fetch("/dims/" + year.value.toString() + "/" + forcingType.value.toString());
@@ -203,19 +227,20 @@
 
                     let coordinatesArray = data.cornerpoints;
                     let colorlim = data.colorlim;
+
                     data = JSON.parse(data.data).data;
                     
                     globalColorLim = (colorbar.value == 0 ? [colorlim[1], colorlim[0]] : colorlim);
  
                     let colorScale = d3.scaleSequential().interpolator(colorbars[colorbar.value]).domain(globalColorLim);
 
-                    let updatedDataArray = data.map(d => d.TS);
+                    let updatedDataArray = data.map(d => d[currentVariable.value]);
 
                     // iterate over the rectangles in the tile to update the data and fill color
                     var rectElements = d3.select(tile).selectAll('rect').nodes();
                     rectElements.forEach(function(rect, i) {
-                        rect.__data__.TS = updatedDataArray[i];
-                        rect.style.fill = colorScale(rect.__data__.TS);
+                        rect.__data__[currentVariable.value] = updatedDataArray[i];
+                        rect.style.fill = colorScale(rect.__data__[currentVariable.value]);
                     }) 
                 }
                 renderUpdatedData();
@@ -236,14 +261,24 @@
                 var tile = tiles[tileKey].el;
                 var rectElements = d3.select(tile).selectAll('rect').nodes();
                     rectElements.forEach(function(rect, i) {
-                        rect.style.fill = colorScale(rect.__data__.TS);
+                        rect.style.fill = colorScale(rect.__data__[currentVariable.value]);
                     }) 
             })
         };
 
+        async function updateDataVariable() {
+            await fetch("/dataset/" + currentVariable.value);
+            updateDataset();
+        }
+
+        async function updateSettings() {
+            updateDataset();
+        }
+
+        currentVariable.onchange = updateDataVariable;
         colorbar.onchange = updateColors;
-        year.oninput = updateDataset;
-        forcingType.onchange = updateDataset;
+        year.oninput = updateSettings;
+        forcingType.onchange = updateSettings;
     </script>
 
     <!-- adding landmass outlines -->
@@ -299,14 +334,16 @@
 
         function plotData(data, clickedCoords) {
             // ensure data is of type Number
+            data.sort((a, b) => a.time - b.time);
+
             data.forEach( d => {
-                d['year'] = Number( d['year']);
-                d['TS'] = Number(d['TS']);
+                d['time'] = Number( d['time']);
+                d[currentVariable.value] = Number(d[currentVariable.value]);
             });
 
             // construct scales for the x-axis and y-axis based on data range
-            const xDomain = d3.extent(data, d => d.year);
-            const yDomain = d3.extent(data, d => d.TS)
+            const xDomain = d3.extent(data, d => d.time);
+            const yDomain = d3.extent(data, d => d[currentVariable.value])
             const timeScale = d3.scaleLinear().domain(xDomain).range([0, chartWidth]);
             const dataScale = d3.scaleLinear().domain(yDomain).range([chartHeight, 0]);
 
@@ -375,68 +412,16 @@
                 .datum(data)
                 .attr("fill", "none")
                 .attr("stroke", "white")
-                .attr("stroke-width", 2)
+                .attr("stroke-width", 1)
                 .attr("d", d3.line()
-                    .x(function(d) { return (timeScale(d.year)) })
-                    .y(function(d) { return (dataScale(d.TS)) })
+                    .x(function(d) { return (timeScale(d.time)) })
+                    .y(function(d) { return (dataScale(d[currentVariable.value])) })
                 )
-            
-            let hoverArea = chartArea.append("rect")
-                .attr("class", "overlay")
-                .attr("width", chartWidth)
-                .attr("height", chartHeight)
-                .style("opacity", 0)
-                .on("mouseover", () => focus.style("display", null))
-                .on("mouseout", () => focus.style("display", "none"))
-                .on("mousemove", mousemove);
-             
-            // add the dropline and hover tooltip
-            let focus = chartArea
-                .append("g")
-                .attr("class", "focus")
-                .style("display", "none")
-            
-            let block = focus.append("rect")
-                 .attr("x", 0)
-                 .attr("y", 0)
-                 .attr("width", "70px")
-                 .attr("height", "20px")
-                 .style("fill", "white")
-
-            let dropLine = focus.append("line")
-                 .attr("class", "x-hover-line hover-line")
-                 .attr("stroke-width", "1px")
-                 .style("stroke", "white")
-                 .attr("x1", 0)
-                 .attr("y1", 0)
-                 .attr("x2", 0)
-                 .attr("y2", chartHeight +10);
-            
-            function mousemove() {
-                let bisectDate = d3.bisector((d) => d.year).left;
-                let [mouseX, mouseY] = d3.pointer(event, this);
-                let x0 = timeScale.invert(mouseX);
-                let i = bisectDate(data, x0, 1);
-                let d0 = data[i - 1];
-                let d1 = data[i];
-                let d = x0 - d0.year > d1.year - x0 ? d1 : d0;
-
-                focus.attr("display", "block")
-                block.attr("transform",`translate(${timeScale(d.year)}, ${dataScale(d.TS)})`);
-                dropLine.attr("transform",`translate(${timeScale(d.year)}, 0)`);
-
-                focus.select(".tooltip").remove();
-                const tooltip = focus.append("text").attr("class", "tooltip");
-                tooltip.attr("x", 10).attr("y", 15).text(d.TS.toFixed(3));
-
-                tooltip.attr("transform",`translate(${timeScale(d.year)}, ${dataScale(d.TS)})`
-                );
-            }
             
             // elevate plotted line above gridlines
             chartArea.raise()
-
-            let selectedYearData = data.find(d => d.year === currentYear).TS
+       
+            let selectedYearData = data.find(d => d.time === currentYear)[currentVariable.value]
 
             chartArea.append("circle")
                      .attr("cx", timeScale(currentYear))
