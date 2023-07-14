@@ -61,7 +61,7 @@
             <input type="range" id="year-slider" name="year-slider" min="1850" max="2100" value="2023">
             <label for="year-slider">Year: <span id="year-update2">2023</span></label>
         </div>
-        <svg id="time-series-chart" height="450" width="450"></svg>
+        <svg id="time-series-chart" height="450" width="450" class="undisplay"></svg>
     </div>
 
     <script>
@@ -80,7 +80,11 @@
         let yearUpdate2 = document.getElementById('year-update2');
         let dataUpdate = document.getElementById('data-update');
 
-        fetch("/dataset/" + currentVariable.value)
+        var svgPlot = document.getElementById('time-series-chart');
+
+        let lastClicked = [];
+
+        fetch("/dataset/" + currentVariable.value);
 
         // -- MAP GLOBAL SETUP --
         // create Leaflet map object
@@ -211,6 +215,10 @@
             // run function in backend to update the data that will be fetched in renderUpdatedData()
             await fetch("/dims/" + year.value.toString() + "/" + forcingType.value.toString());
 
+            if (svgPlot.classList.contains('displayed')) {
+                plotData(lastClicked);
+            } 
+
             // iterate over gridlayer tiles to update the data being fetched for each one
             var tiles = dataLayer._tiles;
             Object.keys(tiles).forEach(function(tileKey) {
@@ -298,16 +306,21 @@
                         .attr("transform",`translate(${margin.left},${margin.top})`);
 
         map.on('click', function (e) {
-            annotations.selectAll("*").remove();
-            chartArea.selectAll("*").remove();
-            svg.selectAll(".label").remove();
-
             let clickedCoords = e.latlng
-
+            lastClicked = clickedCoords
             plotData(clickedCoords);      
         });
 
         async function plotData(clickedCoords) {
+            if (svgPlot.classList.contains('displayed')) {
+                annotations.selectAll("*").remove();
+                chartArea.selectAll("*").remove();
+                svg.selectAll(".label").remove();
+            } 
+
+            svgPlot.classList.remove('undisplayed');
+            svgPlot.classList.add('displayed');
+
             let projectedCoords = L.CRS.EPSG3857.project(clickedCoords)
             let latitude = projectedCoords.y;
             let longitude = projectedCoords.x;
@@ -325,12 +338,14 @@
 
             let currentYear = Number(year.value);
 
+            let colorScale = d3.scaleSequential().interpolator(colorbars[colorbar.value]).domain(globalColorLim);
+
             // construct scales for the x-axis and y-axis based on data range
             const xDomain = d3.extent(data, d => d.time);
             const yDomain = d3.extent(data, d => d[currentVariable.value])
             const timeScale = d3.scaleLinear().domain(xDomain).range([0, chartWidth]);
             const dataScale = d3.scaleLinear().domain(yDomain).range([chartHeight, 0]);
-
+ 
             // construct y-axis
             let leftAxis = d3.axisLeft(dataScale)
             let leftGridlines = d3.axisLeft(dataScale)
