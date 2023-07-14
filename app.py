@@ -65,11 +65,10 @@ def get_tile(ne_lng, ne_lat, sw_lng, sw_lat):
     }
     return jsonify(json_data)
     
-@app.route('/time-series', methods=['POST'])
-def get_time_series():
-    request_data = request.get_json()
-    latitude = request_data['latitude']
-    longitude = request_data['longitude']
+@app.route('/time-series/<lon>/<lat>')
+def get_time_series(lon, lat):
+    longitude = float(lon)
+    latitude = float(lat)
 
     df_slice = DATA[CURRENT_VARIABLE].sel(x=longitude, y=latitude, method="nearest")
     df_slice = df_slice.to_dataframe().reset_index()[['time', CURRENT_VARIABLE]]
@@ -78,7 +77,7 @@ def get_time_series():
     json_data = df_slice.to_json(orient='records')
     
     # send the JSON response
-    return jsonify(data=json_data)
+    return jsonify(json_data)
 
 if __name__ == '__main__':
    app.run(debug=True)

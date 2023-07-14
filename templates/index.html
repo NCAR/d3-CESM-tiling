@@ -293,8 +293,6 @@
         const chartWidth = width - margin.left - margin.right;
         const chartHeight = height - margin.top - margin.bottom;
 
-        let currentYear = 2023;
-
         let annotations = svg.append("g").attr("id","annotations"); 
         let chartArea = svg.append("g").attr("id","points")
                         .attr("transform",`translate(${margin.left},${margin.top})`);
@@ -306,40 +304,26 @@
 
             let clickedCoords = e.latlng
 
-            let projectedCoords = L.CRS.EPSG3857.project(e.latlng)
+            plotData(clickedCoords);      
+        });
+
+        async function plotData(clickedCoords) {
+            let projectedCoords = L.CRS.EPSG3857.project(clickedCoords)
             let latitude = projectedCoords.y;
             let longitude = projectedCoords.x;
 
-            // send coordinates to backend
-            fetch('/time-series', {
-                    method: 'POST',
-                    body: JSON.stringify({ latitude, longitude }),
-                    headers: {
-                    'Content-Type': 'application/json'
-                    }
-                })
-                .then(response => response.json())
-                .then(data => {
-                    
-                    // call a function to process the received dataframe with d3.js and plot it
-                    data = JSON.parse(data.data)
+            let timeResponse = await fetch('/time-series/' + longitude.toString() + '/' + latitude.toString())
+            let data = await timeResponse.json(); 
+            data = JSON.parse(data)
 
-                    // console.log(data)
-                    plotData(data, clickedCoords);
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                });
-        });
-
-        function plotData(data, clickedCoords) {
-            // ensure data is of type Number
             data.sort((a, b) => a.time - b.time);
 
             data.forEach( d => {
                 d['time'] = Number( d['time']);
                 d[currentVariable.value] = Number(d[currentVariable.value]);
             });
+
+            let currentYear = Number(year.value);
 
             // construct scales for the x-axis and y-axis based on data range
             const xDomain = d3.extent(data, d => d.time);

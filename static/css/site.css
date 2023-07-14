@@ -34,14 +34,14 @@ input {
     accent-color: gray;
 }
 
-path:hover {
-    cursor: grab;
-}
-
 #map {
     height: 100vh;
     width: 70%;
     background-color: rgb(34, 34, 34);
+}
+
+#map path:hover {
+    cursor: grab;
 }
 
 #sidebar {
